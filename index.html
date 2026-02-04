@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Push Log</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0f;
+    --surface: #141419;
+    --surface2: #1c1c24;
+    --border: #2a2a36;
+    --text: #e4e4ec;
+    --text-dim: #7a7a8e;
+    --accent: #6ee7b7;
+    --red: #f87171;
+    --orange: #fb923c;
+    --blue: #60a5fa;
+    --yellow: #fbbf24;
+    --purple: #a78bfa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .noise {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 256px;
+  }
+
+  .container {
+    position: relative; z-index: 1;
+    max-width: 780px; margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  header { margin-bottom: 28px; }
+  header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600; font-size: 22px;
+    color: var(--accent); letter-spacing: -0.5px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  header h1 .blink { opacity: 0.3; }
+  header p { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+
+  /* ── Top actions — always visible ── */
+  .top-actions {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 24px; align-items: center;
+  }
+
+  .btn {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600; font-size: 13px;
+    border: none; border-radius: 8px;
+    padding: 12px 22px; cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 7px;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent); color: var(--bg); }
+  .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn-ghost { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+  .btn-sm { padding: 6px 12px; font-size: 11px; }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-dim); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px;
+  }
+
+  .top-actions .spacer { flex: 1; }
+  #importInput { display: none; }
+
+  /* ── Auth panel ── */
+  .auth-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px; margin-bottom: 24px;
+  }
+  .auth-panel label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-dim);
+    display: block; margin-bottom: 8px;
+  }
+  .input-row { display: flex; gap: 10px; }
+  .input-row input {
+    flex: 1; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; color: var(--text);
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row input::placeholder { color: var(--text-dim); opacity: 0.5; }
+  .hint { font-size:11px;color:var(--text-dim);margin-top:10px;line-height:1.6; }
+  .hint code { background:var(--surface2);padding:2px 5px;border-radius:3px; }
+
+  /* ── Debug console ── */
+  .debug-panel {
+    background: #0a0a0d;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 24px; overflow: hidden;
+  }
+  .debug-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+  }
+  .debug-header span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .debug-header .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+  .debug-header .dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
+  .debug-header .dot.err { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .debug-actions { display: flex; gap: 6px; }
+  .debug-body {
+    max-height: 280px; overflow-y: auto;
+    padding: 12px 16px; display: none;
+  }
+  .debug-body.open { display: block; }
+  .debug-body::-webkit-scrollbar { width: 5px; }
+  .debug-body::-webkit-scrollbar-track { background: transparent; }
+  .debug-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .log-entry {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; line-height: 1.7; word-break: break-all;
+  }
+  .log-entry .ts { color: var(--text-dim); opacity: 0.5; margin-right: 8px; }
+  .log-entry.info { color: var(--text-dim); }
+  .log-entry.success { color: var(--accent); }
+  .log-entry.warn { color: var(--yellow); }
+  .log-entry.error { color: var(--red); }
+  .log-entry.http { color: var(--blue); }
+  .log-count {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    background: var(--surface2); color: var(--text-dim);
+    padding: 2px 7px; border-radius: 10px; margin-left: 6px;
+  }
+
+  .status { text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 14px; }
+  .status.error { color: var(--red); }
+  .spinner {
+    width: 24px; height: 24px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Weekly summary ── */
+  .weekly-summary { margin-bottom: 32px; }
+  .weekly-summary h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--text-dim);
+    margin-bottom: 14px;
+  }
+
+  .week-cards {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  .week-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 16px;
+    align-items: center;
+  }
+
+  .week-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text);
+    font-weight: 500;
+  }
+
+  .week-stats {
+    display: flex; gap: 16px; align-items: center;
+  }
+
+  .week-stat {
+    text-align: right;
+  }
+
+  .week-stat .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .week-stat .lbl {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .week-repos {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: 5px;
+  }
+
+  .week-repo-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--purple);
+    background: #a78bfa10;
+    border: 1px solid #a78bfa20;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .week-bar-track {
+    grid-column: 1 / -1;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .week-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  /* ── Push list ── */
+  .section-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--text-dim);
+    margin-bottom: 14px;
+  }
+
+  .push-list { list-style: none; }
+  .day-group { margin-bottom: 28px; }
+  .day-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-dim); padding: 8px 0 8px;
+    border-bottom: 1px solid var(--border); margin-bottom: 2px;
+    position: sticky; top: 0; background: var(--bg); z-index: 2;
+  }
+  .push-item {
+    display: grid; grid-template-columns: 64px 1fr;
+    gap: 0 14px; padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 4px; align-items: start;
+  }
+  .push-item:last-child { border-bottom: none; }
+  .push-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text-dim);
+    padding-top: 2px; text-align: right;
+  }
+  .push-repo { font-weight: 600; font-size: 14px; color: var(--text); word-break: break-all; }
+  .push-repo .owner { color: var(--text-dim); font-weight: 400; }
+  .push-branch {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--blue); background: #60a5fa12;
+    padding: 2px 7px; border-radius: 4px;
+    display: inline-block; margin-top: 3px;
+  }
+  .push-commits { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
+  .push-commits .commit-msg { color: var(--text); opacity: 0.75; }
+  .commit-sha { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--orange); opacity: 0.7; }
+
+  @media (max-width: 500px) {
+    .container { padding: 20px 14px 60px; }
+    .input-row { flex-direction: column; }
+    .push-item { grid-template-columns: 50px 1fr; gap: 0 10px; }
+    .top-actions { gap: 6px; }
+    .btn { padding: 10px 14px; font-size: 12px; }
+    .week-card { grid-template-columns: 1fr; }
+    .week-stats { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="container">
+  <header>
+    <h1>$ push.log <span class="blink">_</span></h1>
+    <p>All your GitHub pushes, sorted by time</p>
+  </header>
+
+  <!-- Always-visible top actions -->
+  <div class="top-actions">
+    <button class="btn btn-ghost" onclick="document.getElementById('importInput').click()">↑ Import JSON</button>
+    <input type="file" id="importInput" accept=".json" onchange="importData(event)">
+    <button class="btn btn-ghost" id="exportBtn" onclick="exportData()" style="display:none;">↓ Export JSON</button>
+    <button class="btn btn-ghost" id="dpasteExportBtn" onclick="exportToDpaste()" style="display:none;">⬆ Share via dpaste</button>
+    <button class="btn btn-ghost" id="dpasteImportBtn" onclick="promptDpasteImport()">⬇ Load from dpaste</button>
+    <div class="spacer"></div>
+    <span class="badge" id="countBadge" style="display:none;">0 pushes</span>
+    <span class="badge" id="dpasteNotify" style="display:none; color:var(--accent); border-color:var(--accent);"></span>
+  </div>
+
+  <div class="auth-panel">
+    <label>GitHub Personal Access Token</label>
+    <div class="input-row">
+      <input type="password" id="tokenInput" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+      <button class="btn btn-primary" id="fetchBtn" onclick="fetchPushes()">Fetch</button>
+    </div>
+    <p class="hint">
+      Needs <code>repo</code> or <code>read:user</code> scope.
+      Token stays in your browser only.
+    </p>
+  </div>
+
+  <div class="debug-panel">
+    <div class="debug-header" onclick="toggleDebug()">
+      <span><span class="dot" id="debugDot"></span> Debug Log <span class="log-count" id="logCount">0</span></span>
+      <div class="debug-actions">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); copyLogs()">Copy</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); clearLogs()">Clear</button>
+      </div>
+    </div>
+    <div class="debug-body" id="debugBody"></div>
+  </div>
+
+  <div id="summary"></div>
+  <div id="output"></div>
+</div>
+
+<script>
+/* ── Debug Logger ──────────────────────────────────────── */
+var logEntries = [];
+var logOpen = false;
+
+function log(level, msg) {
+  var now = new Date();
+  var ts = now.toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' })
+    + '.' + String(now.getMilliseconds()).padStart(3, '0');
+  logEntries.push({ ts: ts, level: level, msg: msg });
+
+  var body = document.getElementById('debugBody');
+  var div = document.createElement('div');
+  div.className = 'log-entry ' + level;
+  div.innerHTML = '<span class="ts">' + ts + '</span>' + escHtml(msg);
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+
+  document.getElementById('logCount').textContent = logEntries.length;
+
+  var dot = document.getElementById('debugDot');
+  if (level === 'error') dot.className = 'dot err';
+  else if (level === 'success' && !dot.classList.contains('err')) dot.className = 'dot active';
+}
+
+function toggleDebug() {
+  logOpen = !logOpen;
+  document.getElementById('debugBody').classList.toggle('open', logOpen);
+}
+
+function clearLogs() {
+  logEntries.length = 0;
+  document.getElementById('debugBody').innerHTML = '';
+  document.getElementById('debugDot').className = 'dot';
+  document.getElementById('logCount').textContent = '0';
+}
+
+function copyLogs() {
+  var text = logEntries.map(function(e) { return '[' + e.ts + '] [' + e.level.toUpperCase() + '] ' + e.msg; }).join('\n');
+  navigator.clipboard.writeText(text).then(function() { log('info', 'Logs copied'); }).catch(function() { log('warn', 'Clipboard denied'); });
+}
+
+/* ── Logged fetch wrapper ──────────────────────────────── */
+async function loggedFetch(url, opts) {
+  var safeUrl = url.replace(/access_token=[^&]+/, 'access_token=***');
+  log('http', '→ GET ' + safeUrl);
+
+  var res;
+  try {
+    res = await fetch(url, opts);
+  } catch (err) {
+    log('error', '✗ Network error: ' + err.message);
+    log('error', '  Error type: ' + err.name);
+    if (err.message.includes('Failed to fetch')) {
+      log('warn', '  Likely: CORS block, offline, DNS fail, or sandbox restriction');
+    }
+    throw err;
+  }
+
+  var rateRem = res.headers.get('x-ratelimit-remaining');
+  var rateLim = res.headers.get('x-ratelimit-limit');
+  var rateReset = res.headers.get('x-ratelimit-reset');
+  var scopes = res.headers.get('x-oauth-scopes');
+
+  log(res.ok ? 'success' : 'error', '← ' + res.status + ' ' + res.statusText);
+  if (rateLim) log('info', '  Rate: ' + rateRem + '/' + rateLim + ' remaining');
+  if (rateReset) {
+    var rd = new Date(parseInt(rateReset) * 1000);
+    log('info', '  Resets: ' + rd.toLocaleTimeString());
+  }
+  if (scopes !== null) log('info', '  Scopes: ' + (scopes || '(fine-grained PAT)'));
+
+  if (!res.ok) {
+    try { var b = await res.clone().text(); log('error', '  Body: ' + b.slice(0, 500)); } catch (_) {}
+  }
+
+  return res;
+}
+
+/* ── Main ──────────────────────────────────────────────── */
+var allPushes = [];
+var _username = null;
+
+async function getUsername(token) {
+  if (_username) return _username;
+  log('info', 'Authenticating via /user ...');
+  var res = await loggedFetch('https://api.github.com/user', {
+    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' }
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('401 — token invalid or expired');
+    if (res.status === 403) throw new Error('403 — forbidden (rate limit or bad scope)');
+    throw new Error('Auth failed: ' + res.status);
+  }
+  var data = await res.json();
+  _username = data.login;
+  log('success', 'Authenticated as: ' + _username);
+  return _username;
+}
+
+async function fetchPushes() {
+  var token = document.getElementById('tokenInput').value.trim();
+  if (!token) { log('warn', 'No token entered'); return; }
+
+  if (!logOpen) toggleDebug();
+
+  var btn = document.getElementById('fetchBtn');
+  var output = document.getElementById('output');
+  btn.disabled = true;
+  btn.textContent = 'Fetching…';
+  document.getElementById('summary').innerHTML = '';
+  output.innerHTML = '<div class="status"><div class="spinner"></div>Fetching push events…<br><span style="font-size:12px;opacity:0.6">Check debug log for details</span></div>';
+
+  log('info', '──── Fetch started ────');
+  log('info', 'Token: ' + token.slice(0, 7) + '...' + token.slice(-4));
+
+  try {
+    var username = await getUsername(token);
+    var pushes = [];
+    var page = 1;
+    var hasMore = true;
+
+    while (hasMore && page <= 10) {
+      log('info', 'Events page ' + page + '...');
+      var url = 'https://api.github.com/users/' + username + '/events?per_page=100&page=' + page;
+      var res = await loggedFetch(url, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' }
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('Token expired mid-session (401)');
+        if (res.status === 403) throw new Error('Rate limited or forbidden (403)');
+        if (res.status === 404) throw new Error('User "' + username + '" events not accessible (404)');
+        throw new Error('API error: ' + res.status + ' ' + res.statusText);
+      }
+
+      var events = await res.json();
+      log('info', '  Got ' + events.length + ' events');
+
+      if (events.length === 0) { log('info', '  End of events'); hasMore = false; break; }
+
+      if (page === 1) {
+        var types = {};
+        events.forEach(function(e) { types[e.type] = (types[e.type] || 0) + 1; });
+        log('info', '  Types: ' + Object.entries(types).map(function(kv) { return kv[0] + ':' + kv[1]; }).join(', '));
+      }
+
+      var pc = 0;
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
+        if (ev.type === 'PushEvent') {
+          pc++;
+          var branch = (ev.payload.ref || '').replace('refs/heads/', '');
+          pushes.push({
+            time: ev.created_at,
+            repo: ev.repo.name,
+            branch: branch,
+            commits: (ev.payload.commits || []).map(function(c) {
+              return { sha: c.sha.slice(0, 7), message: c.message.split('\n')[0] };
+            }),
+            size: ev.payload.size || 0
+          });
+        }
+      }
+
+      log('info', '  Pushes on page: ' + pc + ' (total: ' + pushes.length + ')');
+      output.innerHTML = '<div class="status"><div class="spinner"></div>' + pushes.length + ' pushes found (page ' + page + ')</div>';
+      page++;
+    }
+
+    if (page > 10) log('warn', 'Hit GitHub max — 10 pages / ~90 days');
+
+    allPushes = pushes.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
+    log('success', '──── Done: ' + allPushes.length + ' pushes ────');
+    renderAll();
+
+  } catch (err) {
+    log('error', 'FATAL: ' + err.message);
+    output.innerHTML = '<div class="status error">' + escHtml(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Fetch';
+  }
+}
+
+/* ── Week helpers ──────────────────────────────────────── */
+function getWeekKey(date) {
+  // ISO week: Monday-based
+  var d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  var day = d.getDay() || 7; // Mon=1 … Sun=7
+  d.setDate(d.getDate() + 4 - day); // Thursday of the week
+  var yearStart = new Date(d.getFullYear(), 0, 1);
+  var weekNum = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return d.getFullYear() + '-W' + String(weekNum).padStart(2, '0');
+}
+
+function getWeekRange(date) {
+  var d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  var day = d.getDay() || 7;
+  var mon = new Date(d);
+  mon.setDate(d.getDate() - day + 1);
+  var sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  var opts = { month: 'short', day: 'numeric' };
+  return mon.toLocaleDateString('en-US', opts) + ' – ' + sun.toLocaleDateString('en-US', opts) + ', ' + sun.getFullYear();
+}
+
+function renderWeeklySummary() {
+  var el = document.getElementById('summary');
+  if (allPushes.length === 0) { el.innerHTML = ''; return; }
+
+  // Group by week
+  var weeks = {};
+  var weekOrder = [];
+  for (var i = 0; i < allPushes.length; i++) {
+    var p = allPushes[i];
+    var wk = getWeekKey(p.time);
+    if (!weeks[wk]) {
+      weeks[wk] = { pushes: 0, commits: 0, repos: {}, range: getWeekRange(p.time) };
+      weekOrder.push(wk);
+    }
+    weeks[wk].pushes++;
+    weeks[wk].commits += p.commits.length;
+    var repoShort = p.repo.split('/')[1] || p.repo;
+    weeks[wk].repos[repoShort] = true;
+  }
+
+  // Find max pushes for bar scaling
+  var maxPushes = 0;
+  weekOrder.forEach(function(wk) { if (weeks[wk].pushes > maxPushes) maxPushes = weeks[wk].pushes; });
+
+  var html = '<div class="weekly-summary"><h2>Weekly Summary</h2><div class="week-cards">';
+
+  for (var w = 0; w < weekOrder.length; w++) {
+    var wk = weekOrder[w];
+    var data = weeks[wk];
+    var repos = Object.keys(data.repos);
+    var barPct = maxPushes > 0 ? Math.round((data.pushes / maxPushes) * 100) : 0;
+
+    html += '<div class="week-card">'
+      + '<div class="week-label">' + escHtml(data.range) + '</div>'
+      + '<div class="week-stats">'
+      + '<div class="week-stat"><div class="num">' + data.pushes + '</div><div class="lbl">pushes</div></div>'
+      + '<div class="week-stat"><div class="num">' + data.commits + '</div><div class="lbl">commits</div></div>'
+      + '</div>'
+      + '<div class="week-bar-track"><div class="week-bar-fill" style="width:' + barPct + '%"></div></div>'
+      + '<div class="week-repos">';
+
+    for (var r = 0; r < repos.length; r++) {
+      html += '<span class="week-repo-tag">' + escHtml(repos[r]) + '</span>';
+    }
+
+    html += '</div></div>';
+  }
+
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+/* ── Render all ────────────────────────────────────────── */
+function renderAll() {
+  var badge = document.getElementById('countBadge');
+  var exportBtn = document.getElementById('exportBtn');
+
+  var dpBtn = document.getElementById('dpasteExportBtn');
+  if (allPushes.length === 0) {
+    badge.style.display = 'none';
+    exportBtn.style.display = 'none';
+    dpBtn.style.display = 'none';
+    document.getElementById('summary').innerHTML = '';
+    document.getElementById('output').innerHTML = '<div class="status">No push events found</div>';
+    return;
+  }
+
+  badge.style.display = '';
+  exportBtn.style.display = '';
+  dpBtn.style.display = '';
+  badge.textContent = allPushes.length + ' push' + (allPushes.length !== 1 ? 'es' : '');
+
+  renderWeeklySummary();
+  renderPushList();
+}
+
+function renderPushList() {
+  var output = document.getElementById('output');
+
+  var groups = {};
+  var groupOrder = [];
+  for (var i = 0; i < allPushes.length; i++) {
+    var p = allPushes[i];
+    var d = new Date(p.time);
+    var key = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(p);
+  }
+
+  var html = '<div class="section-header">All Pushes</div>';
+  for (var k = 0; k < groupOrder.length; k++) {
+    var day = groupOrder[k];
+    var pushes = groups[day];
+    html += '<div class="day-group"><div class="day-header">' + day + '</div><ul class="push-list">';
+    for (var j = 0; j < pushes.length; j++) {
+      var p = pushes[j];
+      var t = new Date(p.time);
+      var timeStr = t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      var parts = p.repo.split('/');
+      var owner = parts[0];
+      var repo = parts[1];
+
+      var commitsHtml = '';
+      var shown = p.commits.slice(0, 3);
+      for (var c = 0; c < shown.length; c++) {
+        commitsHtml += '<div><span class="commit-sha">' + shown[c].sha + '</span> <span class="commit-msg">' + escHtml(shown[c].message) + '</span></div>';
+      }
+      if (p.commits.length > 3) commitsHtml += '<div style="opacity:0.5">+' + (p.commits.length - 3) + ' more</div>';
+
+      html += '<li class="push-item">'
+        + '<div class="push-time">' + timeStr + '</div>'
+        + '<div class="push-body">'
+        + '<div class="push-repo"><span class="owner">' + escHtml(owner) + '/</span>' + escHtml(repo) + '</div>'
+        + '<span class="push-branch">' + escHtml(p.branch) + '</span>'
+        + (commitsHtml ? '<div class="push-commits">' + commitsHtml + '</div>' : '')
+        + '</div></li>';
+    }
+    html += '</ul></div>';
+  }
+
+  output.innerHTML = html;
+}
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function exportData() {
+  if (allPushes.length === 0) return;
+  log('info', 'Exporting ' + allPushes.length + ' pushes');
+  var blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), pushes: allPushes }, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pushlog-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('success', 'Export downloaded');
+}
+
+function importData(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  log('info', 'Importing: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + 'KB)');
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      if (!data.pushes || !Array.isArray(data.pushes)) throw new Error('Missing "pushes" array');
+      allPushes = data.pushes.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
+      log('success', 'Imported ' + allPushes.length + ' pushes');
+      renderAll();
+    } catch (err) {
+      log('error', 'Import failed: ' + err.message);
+      document.getElementById('output').innerHTML = '<div class="status error">Import failed: ' + escHtml(err.message) + '</div>';
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+document.getElementById('tokenInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') fetchPushes();
+});
+
+log('info', 'Push Log ready');
+log('info', 'UA: ' + navigator.userAgent.slice(0, 100));
+
+/* ── dpaste integration ────────────────────────────────── */
+function showNotify(msg, duration) {
+  var el = document.getElementById('dpasteNotify');
+  el.textContent = msg;
+  el.style.display = '';
+  if (duration) setTimeout(function() { el.style.display = 'none'; }, duration);
+}
+
+async function uploadToDpaste(data) {
+  var content = 'RAW:' + JSON.stringify(data);
+  var formData = new FormData();
+  formData.append('content', content);
+  formData.append('syntax', 'text');
+  formData.append('expiry_days', '365');
+
+  var res = await fetch('https://dpaste.com/api/', {
+    method: 'POST',
+    body: formData
+  });
+  if (!res.ok) throw new Error('dpaste upload failed: ' + res.status);
+
+  var pasteUrl = (await res.text()).trim();
+  var shortCode = pasteUrl.replace('https://dpaste.com/', '').replace('http://dpaste.com/', '').replace('/', '');
+  return shortCode;
+}
+
+async function fetchFromDpaste(shortCode) {
+  var fetchUrl = shortCode.startsWith('http')
+    ? (shortCode.endsWith('.txt') ? shortCode : shortCode + '.txt')
+    : 'https://dpaste.com/' + shortCode + '.txt';
+
+  log('http', '→ GET ' + fetchUrl);
+  var res = await fetch(fetchUrl);
+  if (!res.ok) throw new Error('dpaste fetch failed: ' + res.status);
+
+  var content = await res.text();
+  log('success', '← dpaste: ' + content.length + ' chars');
+
+  if (content.startsWith('RAW:')) {
+    return JSON.parse(content.substring(4));
+  }
+  return JSON.parse(content);
+}
+
+async function exportToDpaste() {
+  if (allPushes.length === 0) return;
+  var btn = document.getElementById('dpasteExportBtn');
+  var orig = btn.textContent;
+  btn.textContent = 'Uploading…';
+  btn.disabled = true;
+
+  try {
+    log('info', 'Uploading ' + allPushes.length + ' pushes to dpaste…');
+    var payload = { exported: new Date().toISOString(), pushes: allPushes };
+    var code = await uploadToDpaste(payload);
+    log('success', 'dpaste code: ' + code);
+
+    var shareUrl = window.location.href.split('?')[0] + '?d=' + code;
+    var copied = false;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      copied = true;
+    } catch(_) {
+      // fallback: prompt
+      prompt('Share this URL:', shareUrl);
+    }
+
+    if (copied) {
+      showNotify('Link copied!', 4000);
+      log('success', 'Shareable URL copied: ' + shareUrl);
+    }
+  } catch(err) {
+    log('error', 'dpaste export failed: ' + err.message);
+    showNotify('Upload failed', 4000);
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+function promptDpasteImport() {
+  var input = prompt('Paste dpaste code or URL:\n\nExamples:\n  5WUAP2ZZ\n  https://dpaste.com/5WUAP2ZZ\n  yoursite.com/pushlog.html?d=5WUAP2ZZ');
+  if (!input) return;
+
+  // Extract code from various formats
+  var code = input.trim();
+  var match = code.match(/[?&]d=([A-Za-z0-9]+)/);
+  if (match) {
+    code = match[1];
+  } else {
+    code = code.replace(/https?:\/\/dpaste\.com\//i, '').replace(/\.txt$/, '').replace(/\/$/, '');
+  }
+
+  if (!code) { log('warn', 'No dpaste code found in input'); return; }
+  loadFromDpaste(code);
+}
+
+async function loadFromDpaste(code) {
+  log('info', 'Loading from dpaste: ' + code);
+  var output = document.getElementById('output');
+  document.getElementById('summary').innerHTML = '';
+  output.innerHTML = '<div class="status"><div class="spinner"></div>Loading from dpaste…</div>';
+
+  try {
+    var data = await fetchFromDpaste(code);
+    if (!data || !data.pushes || !Array.isArray(data.pushes)) throw new Error('Invalid data format');
+    allPushes = data.pushes.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
+    log('success', 'Loaded ' + allPushes.length + ' pushes from dpaste');
+    showNotify('Loaded from dpaste!', 4000);
+    renderAll();
+  } catch(err) {
+    log('error', 'dpaste load failed: ' + err.message);
+    output.innerHTML = '<div class="status error">Failed to load from dpaste: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+// Auto-load from ?d= URL parameter on page load
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var dCode = params.get('d');
+  if (dCode) {
+    log('info', 'Detected ?d= parameter: ' + dCode);
+    loadFromDpaste(dCode);
+  }
+})();
+</script>
+</body>
+</html>
