@@ -932,7 +932,7 @@ function generateBookmark() {
 
   // Bookmark: #t=GITHUB_TOKEN
   if (hash.startsWith('#t=')) {
-    var token = decodeURIComponent(hash.substring(5));
+    var token = decodeURIComponent(hash.substring(3));
     log('info', 'Detected bookmark token in URL fragment');
     document.getElementById('tokenInput').value = token;
     fetchPushes();
