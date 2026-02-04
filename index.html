@@ -305,16 +305,17 @@
 <div class="noise"></div>
 <div class="container">
   <header>
-    <h1>$ push.log <span class="blink">_</span></h1>
+    <h1><a href="./" style="color:inherit;text-decoration:none;">$ push.log <span class="blink">_</span></a></h1>
     <p>All your GitHub pushes, sorted by time</p>
   </header>
 
   <!-- Always-visible top actions -->
   <div class="top-actions">
-    <button class="btn btn-ghost" onclick="document.getElementById('importInput').click()">↑ Import JSON</button>
+    <button class="btn btn-ghost" id="importBtn" onclick="document.getElementById('importInput').click()">↑ Import JSON</button>
     <input type="file" id="importInput" accept=".json" onchange="importData(event)">
     <button class="btn btn-ghost" id="exportBtn" onclick="exportData()" style="display:none;">↓ Export JSON</button>
     <button class="btn btn-ghost" id="dpasteExportBtn" onclick="exportToDpaste()" style="display:none;">⬆ Share via dpaste</button>
+    <button class="btn btn-ghost" id="bookmarkBtn" onclick="generateBookmark()" style="display:none;">★ Bookmark</button>
     <button class="btn btn-ghost" id="dpasteImportBtn" onclick="promptDpasteImport()">⬇ Load from dpaste</button>
     <div class="spacer"></div>
     <span class="badge" id="countBadge" style="display:none;">0 pushes</span>
@@ -369,8 +370,10 @@ function log(level, msg) {
   document.getElementById('logCount').textContent = logEntries.length;
 
   var dot = document.getElementById('debugDot');
-  if (level === 'error') dot.className = 'dot err';
-  else if (level === 'success' && !dot.classList.contains('err')) dot.className = 'dot active';
+  if (level === 'error') {
+    dot.className = 'dot err';
+    if (!logOpen) toggleDebug();
+  } else if (level === 'success' && !dot.classList.contains('err')) dot.className = 'dot active';
 }
 
 function toggleDebug() {
@@ -451,8 +454,6 @@ async function getUsername(token) {
 async function fetchPushes() {
   var token = document.getElementById('tokenInput').value.trim();
   if (!token) { log('warn', 'No token entered'); return; }
-
-  if (!logOpen) toggleDebug();
 
   var btn = document.getElementById('fetchBtn');
   var output = document.getElementById('output');
@@ -613,20 +614,29 @@ function renderWeeklySummary() {
 function renderAll() {
   var badge = document.getElementById('countBadge');
   var exportBtn = document.getElementById('exportBtn');
-
   var dpBtn = document.getElementById('dpasteExportBtn');
+  var bmBtn = document.getElementById('bookmarkBtn');
+  var importBtn = document.getElementById('importBtn');
+  var dpImportBtn = document.getElementById('dpasteImportBtn');
+
   if (allPushes.length === 0) {
     badge.style.display = 'none';
     exportBtn.style.display = 'none';
     dpBtn.style.display = 'none';
+    bmBtn.style.display = 'none';
+    importBtn.style.display = '';
+    dpImportBtn.style.display = '';
     document.getElementById('summary').innerHTML = '';
     document.getElementById('output').innerHTML = '<div class="status">No push events found</div>';
     return;
   }
 
+  importBtn.style.display = 'none';
+  dpImportBtn.style.display = 'none';
   badge.style.display = '';
   exportBtn.style.display = '';
   dpBtn.style.display = '';
+  bmBtn.style.display = document.getElementById('tokenInput').value.trim() ? '' : 'none';
   badge.textContent = allPushes.length + ' push' + (allPushes.length !== 1 ? 'es' : '');
 
   renderWeeklySummary();
@@ -816,16 +826,11 @@ async function fetchFromDpaste(shortCode, key) {
   var content = await res.text();
   log('success', '← dpaste: ' + content.length + ' chars');
 
-  if (content.startsWith('ENC:')) {
-    if (!key) throw new Error('Encrypted data but no decryption key provided');
-    var plaintext = await decryptData(content.substring(4), key);
-    log('success', 'Decrypted successfully');
-    return JSON.parse(plaintext);
-  }
-  if (content.startsWith('RAW:')) {
-    return JSON.parse(content.substring(4));
-  }
-  return JSON.parse(content);
+  if (!content.startsWith('ENC:')) throw new Error('Unexpected content format');
+  if (!key) throw new Error('Encrypted data but no decryption key provided');
+  var plaintext = await decryptData(content.substring(4), key);
+  log('success', 'Decrypted successfully');
+  return JSON.parse(plaintext);
 }
 
 async function exportToDpaste() {
@@ -866,29 +871,18 @@ async function exportToDpaste() {
 }
 
 function promptDpasteImport() {
-  var input = prompt('Paste dpaste code or URL:\n\nExamples:\n  5WUAP2ZZ\n  https://dpaste.com/5WUAP2ZZ\n  yoursite.com/pushlog.html?d=5WUAP2ZZ\n  yoursite.com/pushlog.html#KEY:5WUAP2ZZ');
+  var input = prompt('Paste encrypted share URL:\n\nExample:\n  yoursite.com/pushlog.html#KEY:5WUAP2ZZ');
   if (!input) return;
 
   var trimmed = input.trim();
-
-  // Check for #key:code format (encrypted)
   var hashMatch = trimmed.match(/#([A-Za-z0-9_-]+):([A-Za-z0-9]+)$/);
   if (hashMatch) {
     loadFromDpaste(hashMatch[2], hashMatch[1]);
     return;
   }
 
-  // Check for ?d= format (legacy unencrypted)
-  var code = trimmed;
-  var match = code.match(/[?&]d=([A-Za-z0-9]+)/);
-  if (match) {
-    code = match[1];
-  } else {
-    code = code.replace(/https?:\/\/dpaste\.com\//i, '').replace(/\.txt$/, '').replace(/\/$/, '');
-  }
-
-  if (!code) { log('warn', 'No dpaste code found in input'); return; }
-  loadFromDpaste(code);
+  log('warn', 'No encrypted share link found in input');
+  showNotify('Invalid share link', 3000);
 }
 
 async function loadFromDpaste(code, key) {
@@ -910,22 +904,44 @@ async function loadFromDpaste(code, key) {
   }
 }
 
-// Auto-load from #key:code (encrypted) or ?d= (legacy) on page load
+/* ── Bookmark (private, token in fragment only) ───────── */
+function generateBookmark() {
+  var token = document.getElementById('tokenInput').value.trim();
+  if (!token) { showNotify('No token entered', 3000); return; }
+
+  var baseUrl = window.location.href.split('?')[0].split('#')[0];
+  var bookmarkUrl = baseUrl + '#t=' + encodeURIComponent(token);
+  var copied = false;
+  try {
+    navigator.clipboard.writeText(bookmarkUrl);
+    copied = true;
+  } catch(_) {
+    prompt('Bookmark this URL (token stays in # fragment, never sent to server):', bookmarkUrl);
+  }
+  if (copied) {
+    showNotify('Bookmark URL copied!', 4000);
+    log('success', 'Bookmark URL copied — token is in the # fragment (private, never sent to server)');
+  }
+}
+
+// Auto-load from #t= (bookmark) or #key:code (encrypted dpaste) on page load
 (function() {
   var hash = window.location.hash;
-  if (hash) {
-    var hashMatch = hash.match(/^#([A-Za-z0-9_-]+):([A-Za-z0-9]+)$/);
-    if (hashMatch) {
-      log('info', 'Detected encrypted #key:code in URL');
-      loadFromDpaste(hashMatch[2], hashMatch[1]);
-      return;
-    }
+  if (!hash) return;
+
+  // Bookmark: #t=GITHUB_TOKEN
+  if (hash.startsWith('#t=')) {
+    var token = decodeURIComponent(hash.substring(5));
+    log('info', 'Detected bookmark token in URL fragment');
+    document.getElementById('tokenInput').value = token;
+    fetchPushes();
+    return;
   }
-  var params = new URLSearchParams(window.location.search);
-  var dCode = params.get('d');
-  if (dCode) {
-    log('info', 'Detected ?d= parameter: ' + dCode);
-    loadFromDpaste(dCode);
+  // Encrypted dpaste: #KEY:CODE
+  var hashMatch = hash.match(/^#([A-Za-z0-9_-]+):([A-Za-z0-9]+)$/);
+  if (hashMatch) {
+    log('info', 'Detected encrypted #key:code in URL');
+    loadFromDpaste(hashMatch[2], hashMatch[1]);
   }
 })();
 </script>
