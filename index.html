@@ -726,6 +726,57 @@ document.getElementById('tokenInput').addEventListener('keydown', function(e) {
 log('info', 'Push Log ready');
 log('info', 'UA: ' + navigator.userAgent.slice(0, 100));
 
+/* ── encryption helpers (Web Crypto AES-GCM) ──────────── */
+function toBase64Url(buf) {
+  var bytes = new Uint8Array(buf);
+  var binary = '';
+  for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(str) {
+  var b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  var binary = atob(b64);
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function generateKey() {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+
+async function exportKey(key) {
+  var raw = await crypto.subtle.exportKey('raw', key);
+  return toBase64Url(raw);
+}
+
+async function importKey(b64) {
+  var raw = fromBase64Url(b64);
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+}
+
+async function encryptData(plaintext) {
+  var key = await generateKey();
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  var encoded = new TextEncoder().encode(plaintext);
+  var cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, encoded);
+  var combined = new Uint8Array(iv.length + cipherBuf.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(cipherBuf), iv.length);
+  return { ciphertext: toBase64Url(combined.buffer), key: await exportKey(key) };
+}
+
+async function decryptData(ciphertext_b64, key_b64) {
+  var combined = new Uint8Array(fromBase64Url(ciphertext_b64));
+  var iv = combined.slice(0, 12);
+  var cipherBuf = combined.slice(12);
+  var key = await importKey(key_b64);
+  var plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipherBuf);
+  return new TextDecoder().decode(plainBuf);
+}
+
 /* ── dpaste integration ────────────────────────────────── */
 function showNotify(msg, duration) {
   var el = document.getElementById('dpasteNotify');
@@ -735,7 +786,8 @@ function showNotify(msg, duration) {
 }
 
 async function uploadToDpaste(data) {
-  var content = 'RAW:' + JSON.stringify(data);
+  var encrypted = await encryptData(JSON.stringify(data));
+  var content = 'ENC:' + encrypted.ciphertext;
   var formData = new FormData();
   formData.append('content', content);
   formData.append('syntax', 'text');
@@ -749,10 +801,10 @@ async function uploadToDpaste(data) {
 
   var pasteUrl = (await res.text()).trim();
   var shortCode = pasteUrl.replace('https://dpaste.com/', '').replace('http://dpaste.com/', '').replace('/', '');
-  return shortCode;
+  return { code: shortCode, key: encrypted.key };
 }
 
-async function fetchFromDpaste(shortCode) {
+async function fetchFromDpaste(shortCode, key) {
   var fetchUrl = shortCode.startsWith('http')
     ? (shortCode.endsWith('.txt') ? shortCode : shortCode + '.txt')
     : 'https://dpaste.com/' + shortCode + '.txt';
@@ -764,6 +816,12 @@ async function fetchFromDpaste(shortCode) {
   var content = await res.text();
   log('success', '← dpaste: ' + content.length + ' chars');
 
+  if (content.startsWith('ENC:')) {
+    if (!key) throw new Error('Encrypted data but no decryption key provided');
+    var plaintext = await decryptData(content.substring(4), key);
+    log('success', 'Decrypted successfully');
+    return JSON.parse(plaintext);
+  }
   if (content.startsWith('RAW:')) {
     return JSON.parse(content.substring(4));
   }
@@ -778,12 +836,13 @@ async function exportToDpaste() {
   btn.disabled = true;
 
   try {
-    log('info', 'Uploading ' + allPushes.length + ' pushes to dpaste…');
+    log('info', 'Encrypting and uploading ' + allPushes.length + ' pushes to dpaste…');
     var payload = { exported: new Date().toISOString(), pushes: allPushes };
-    var code = await uploadToDpaste(payload);
-    log('success', 'dpaste code: ' + code);
+    var result = await uploadToDpaste(payload);
+    log('success', 'dpaste code: ' + result.code);
 
-    var shareUrl = window.location.href.split('?')[0] + '?d=' + code;
+    var baseUrl = window.location.href.split('?')[0].split('#')[0];
+    var shareUrl = baseUrl + '#' + result.key + ':' + result.code;
     var copied = false;
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -795,7 +854,7 @@ async function exportToDpaste() {
 
     if (copied) {
       showNotify('Link copied!', 4000);
-      log('success', 'Shareable URL copied: ' + shareUrl);
+      log('success', 'Encrypted shareable URL copied: ' + shareUrl);
     }
   } catch(err) {
     log('error', 'dpaste export failed: ' + err.message);
@@ -807,11 +866,20 @@ async function exportToDpaste() {
 }
 
 function promptDpasteImport() {
-  var input = prompt('Paste dpaste code or URL:\n\nExamples:\n  5WUAP2ZZ\n  https://dpaste.com/5WUAP2ZZ\n  yoursite.com/pushlog.html?d=5WUAP2ZZ');
+  var input = prompt('Paste dpaste code or URL:\n\nExamples:\n  5WUAP2ZZ\n  https://dpaste.com/5WUAP2ZZ\n  yoursite.com/pushlog.html?d=5WUAP2ZZ\n  yoursite.com/pushlog.html#KEY:5WUAP2ZZ');
   if (!input) return;
 
-  // Extract code from various formats
-  var code = input.trim();
+  var trimmed = input.trim();
+
+  // Check for #key:code format (encrypted)
+  var hashMatch = trimmed.match(/#([A-Za-z0-9_-]+):([A-Za-z0-9]+)$/);
+  if (hashMatch) {
+    loadFromDpaste(hashMatch[2], hashMatch[1]);
+    return;
+  }
+
+  // Check for ?d= format (legacy unencrypted)
+  var code = trimmed;
   var match = code.match(/[?&]d=([A-Za-z0-9]+)/);
   if (match) {
     code = match[1];
@@ -823,14 +891,14 @@ function promptDpasteImport() {
   loadFromDpaste(code);
 }
 
-async function loadFromDpaste(code) {
-  log('info', 'Loading from dpaste: ' + code);
+async function loadFromDpaste(code, key) {
+  log('info', 'Loading from dpaste: ' + code + (key ? ' (encrypted)' : ''));
   var output = document.getElementById('output');
   document.getElementById('summary').innerHTML = '';
   output.innerHTML = '<div class="status"><div class="spinner"></div>Loading from dpaste…</div>';
 
   try {
-    var data = await fetchFromDpaste(code);
+    var data = await fetchFromDpaste(code, key);
     if (!data || !data.pushes || !Array.isArray(data.pushes)) throw new Error('Invalid data format');
     allPushes = data.pushes.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
     log('success', 'Loaded ' + allPushes.length + ' pushes from dpaste');
@@ -842,8 +910,17 @@ async function loadFromDpaste(code) {
   }
 }
 
-// Auto-load from ?d= URL parameter on page load
+// Auto-load from #key:code (encrypted) or ?d= (legacy) on page load
 (function() {
+  var hash = window.location.hash;
+  if (hash) {
+    var hashMatch = hash.match(/^#([A-Za-z0-9_-]+):([A-Za-z0-9]+)$/);
+    if (hashMatch) {
+      log('info', 'Detected encrypted #key:code in URL');
+      loadFromDpaste(hashMatch[2], hashMatch[1]);
+      return;
+    }
+  }
   var params = new URLSearchParams(window.location.search);
   var dCode = params.get('d');
   if (dCode) {
