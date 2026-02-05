@@ -235,6 +235,9 @@
     border-radius: 4px;
   }
 
+  .week-card { cursor: pointer; transition: border-color 0.2s; }
+  .week-card:hover { border-color: var(--text-dim); }
+
   .week-bar-track {
     grid-column: 1 / -1;
     height: 4px;
@@ -248,6 +251,48 @@
     background: var(--accent);
     border-radius: 2px;
     transition: width 0.4s ease;
+  }
+
+  .week-days {
+    grid-column: 1 / -1;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .week-days.open { display: flex; }
+
+  .day-bar-row {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; padding: 3px 0; border-radius: 4px;
+    transition: background 0.15s;
+  }
+  .day-bar-row:hover { background: var(--surface2); }
+
+  .day-bar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-dim);
+    width: 32px; text-align: right; flex-shrink: 0;
+  }
+
+  .day-bar-track {
+    flex: 1; height: 6px;
+    background: var(--surface2);
+    border-radius: 3px; overflow: hidden;
+  }
+  .day-bar-fill {
+    height: 100%;
+    background: var(--blue);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .day-bar-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: var(--text-dim);
+    width: 60px; flex-shrink: 0;
   }
 
   /* ── Push list ── */
@@ -510,7 +555,9 @@ async function fetchPushes() {
             commits: (ev.payload.commits || []).map(function(c) {
               return { sha: c.sha.slice(0, 7), message: c.message.split('\n')[0] };
             }),
-            size: ev.payload.size || 0
+            size: ev.payload.size || 0,
+            before: ev.payload.before,
+            head: ev.payload.head
           });
         }
       }
@@ -521,6 +568,30 @@ async function fetchPushes() {
     }
 
     if (page > 10) log('warn', 'Hit GitHub max — 10 pages / ~90 days');
+
+    // Fetch real commit data via Compare API (parallel, 10 at a time)
+    var comparable = pushes.filter(function(p) {
+      return p.before && p.head && p.before !== '0000000000000000000000000000000000000000';
+    });
+    log('info', 'Fetching commit details for ' + comparable.length + ' pushes…');
+    var BATCH = 50;
+    for (var b = 0; b < comparable.length; b += BATCH) {
+      var batch = comparable.slice(b, b + BATCH);
+      await Promise.all(batch.map(function(push) {
+        var cmpUrl = 'https://api.github.com/repos/' + push.repo + '/compare/' + push.before + '...' + push.head;
+        return fetch(cmpUrl, {
+          headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' }
+        }).then(function(r) { return r.ok ? r.json() : null; }).then(function(cmp) {
+          if (!cmp) return;
+          push.size = cmp.total_commits || cmp.ahead_by || 0;
+          push.commits = (cmp.commits || []).map(function(c) {
+            return { sha: c.sha.slice(0, 7), message: (c.commit.message || '').split('\n')[0] };
+          });
+        }).catch(function() {});
+      }));
+      output.innerHTML = '<div class="status"><div class="spinner"></div>Fetching commits… ' + Math.min(b + BATCH, comparable.length) + '/' + comparable.length + '</div>';
+    }
+    log('success', 'Commit details fetched for ' + comparable.length + ' pushes');
 
     allPushes = pushes.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
     log('success', '──── Done: ' + allPushes.length + ' pushes ────');
@@ -559,29 +630,50 @@ function getWeekRange(date) {
   return mon.toLocaleDateString('en-US', opts) + ' – ' + sun.toLocaleDateString('en-US', opts) + ', ' + sun.getFullYear();
 }
 
+function getDayKey(date) {
+  var d = new Date(date);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 function renderWeeklySummary() {
   var el = document.getElementById('summary');
   if (allPushes.length === 0) { el.innerHTML = ''; return; }
 
-  // Group by week
+  // Group by week, and by day within each week
   var weeks = {};
   var weekOrder = [];
   for (var i = 0; i < allPushes.length; i++) {
     var p = allPushes[i];
     var wk = getWeekKey(p.time);
     if (!weeks[wk]) {
-      weeks[wk] = { pushes: 0, commits: 0, repos: {}, range: getWeekRange(p.time) };
+      weeks[wk] = { pushes: 0, commits: 0, repos: {}, range: getWeekRange(p.time), days: {} };
       weekOrder.push(wk);
     }
     weeks[wk].pushes++;
-    weeks[wk].commits += p.commits.length;
+    weeks[wk].commits += p.size || p.commits.length;
     var repoShort = p.repo.split('/')[1] || p.repo;
     weeks[wk].repos[repoShort] = true;
+
+    var dk = getDayKey(p.time);
+    if (!weeks[wk].days[dk]) {
+      weeks[wk].days[dk] = { pushes: 0, commits: 0, dow: new Date(p.time).getDay() };
+    }
+    weeks[wk].days[dk].pushes++;
+    weeks[wk].days[dk].commits += p.size || p.commits.length;
   }
 
   // Find max pushes for bar scaling
   var maxPushes = 0;
   weekOrder.forEach(function(wk) { if (weeks[wk].pushes > maxPushes) maxPushes = weeks[wk].pushes; });
+
+  // Find max daily pushes across all days for day-bar scaling
+  var maxDayPushes = 0;
+  weekOrder.forEach(function(wk) {
+    var days = weeks[wk].days;
+    for (var dk in days) { if (days[dk].pushes > maxDayPushes) maxDayPushes = days[dk].pushes; }
+  });
 
   var html = '<div class="weekly-summary"><h2>Weekly Summary</h2><div class="week-cards">';
 
@@ -591,7 +683,7 @@ function renderWeeklySummary() {
     var repos = Object.keys(data.repos);
     var barPct = maxPushes > 0 ? Math.round((data.pushes / maxPushes) * 100) : 0;
 
-    html += '<div class="week-card">'
+    html += '<div class="week-card" onclick="this.querySelector(\'.week-days\').classList.toggle(\'open\')">'
       + '<div class="week-label">' + escHtml(data.range) + '</div>'
       + '<div class="week-stats">'
       + '<div class="week-stat"><div class="num">' + data.pushes + '</div><div class="lbl">pushes</div></div>'
@@ -602,6 +694,20 @@ function renderWeeklySummary() {
 
     for (var r = 0; r < repos.length; r++) {
       html += '<span class="week-repo-tag">' + escHtml(repos[r]) + '</span>';
+    }
+
+    // Daily breakdown bars
+    html += '</div><div class="week-days">';
+    var dayKeys = Object.keys(data.days).sort();
+    for (var d = 0; d < dayKeys.length; d++) {
+      var dk = dayKeys[d];
+      var dd = data.days[dk];
+      var dayPct = maxDayPushes > 0 ? Math.round((dd.pushes / maxDayPushes) * 100) : 0;
+      html += '<div class="day-bar-row" onclick="event.stopPropagation();var t=document.getElementById(\'day-' + dk + '\');if(t)t.scrollIntoView({behavior:\'smooth\',block:\'start\'})">'
+        + '<div class="day-bar-label">' + DAY_NAMES[dd.dow] + '</div>'
+        + '<div class="day-bar-track"><div class="day-bar-fill" style="width:' + dayPct + '%"></div></div>'
+        + '<div class="day-bar-count">' + dd.pushes + 'p · ' + dd.commits + 'c</div>'
+        + '</div>';
     }
 
     html += '</div></div>';
@@ -640,6 +746,7 @@ function renderAll() {
   bmBtn.style.display = document.getElementById('tokenInput').value.trim() ? '' : 'none';
   badge.textContent = allPushes.length + ' push' + (allPushes.length !== 1 ? 'es' : '');
 
+
   renderWeeklySummary();
   renderPushList();
 }
@@ -661,7 +768,9 @@ function renderPushList() {
   for (var k = 0; k < groupOrder.length; k++) {
     var day = groupOrder[k];
     var pushes = groups[day];
-    html += '<div class="day-group"><div class="day-header">' + day + '</div><ul class="push-list">';
+    var dayDate = new Date(pushes[0].time);
+    var dayId = 'day-' + dayDate.getFullYear() + '-' + String(dayDate.getMonth() + 1).padStart(2, '0') + '-' + String(dayDate.getDate()).padStart(2, '0');
+    html += '<div class="day-group"><div class="day-header" id="' + dayId + '">' + day + '</div><ul class="push-list">';
     for (var j = 0; j < pushes.length; j++) {
       var p = pushes[j];
       var t = new Date(p.time);
@@ -675,7 +784,14 @@ function renderPushList() {
       for (var c = 0; c < shown.length; c++) {
         commitsHtml += '<div><span class="commit-sha">' + shown[c].sha + '</span> <span class="commit-msg">' + escHtml(shown[c].message) + '</span></div>';
       }
-      if (p.commits.length > 3) commitsHtml += '<div style="opacity:0.5">+' + (p.commits.length - 3) + ' more</div>';
+      if (p.commits.length > 3) {
+        var hiddenHtml = '';
+        for (var c = 3; c < p.commits.length; c++) {
+          hiddenHtml += '<div><span class="commit-sha">' + p.commits[c].sha + '</span> <span class="commit-msg">' + escHtml(p.commits[c].message) + '</span></div>';
+        }
+        commitsHtml += '<div class="commits-hidden" style="display:none">' + hiddenHtml + '</div>';
+        commitsHtml += '<div class="commits-toggle" style="opacity:0.5;cursor:pointer" onclick="var h=this.previousElementSibling;if(h.style.display===\'none\'){h.style.display=\'\';this.textContent=\'▴ collapse\';}else{h.style.display=\'none\';this.textContent=\'+' + (p.commits.length - 3) + ' more\';}">+' + (p.commits.length - 3) + ' more</div>';
+      }
 
       html += '<li class="push-item">'
         + '<div class="push-time">' + timeStr + '</div>'
