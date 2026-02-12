@@ -461,7 +461,8 @@ async function loggedFetch(url, opts) {
   var rateReset = res.headers.get('x-ratelimit-reset');
   var scopes = res.headers.get('x-oauth-scopes');
 
-  log(res.ok ? 'success' : 'error', '← ' + res.status + ' ' + res.statusText);
+  var isErr = !res.ok && res.status !== 422;
+  log(res.ok ? 'success' : (isErr ? 'error' : 'info'), '← ' + res.status + ' ' + res.statusText);
   if (rateLim) log('info', '  Rate: ' + rateRem + '/' + rateLim + ' remaining');
   if (rateReset) {
     var rd = new Date(parseInt(rateReset) * 1000);
@@ -469,7 +470,7 @@ async function loggedFetch(url, opts) {
   }
   if (scopes !== null) log('info', '  Scopes: ' + (scopes || '(fine-grained PAT)'));
 
-  if (!res.ok) {
+  if (isErr) {
     try { var b = await res.clone().text(); log('error', '  Body: ' + b.slice(0, 500)); } catch (_) {}
   }
 
