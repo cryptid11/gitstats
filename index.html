@@ -170,6 +170,25 @@
 
   /* ── Weekly summary ── */
   .weekly-summary { margin-bottom: 32px; }
+  .summary-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 14px;
+  }
+  .summary-head h2 { margin-bottom: 0 !important; }
+  .metric-switch { display: flex; gap: 4px; }
+  .metric-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px; padding: 3px 9px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .metric-btn:hover { color: var(--text); border-color: var(--text-dim); }
+  .metric-btn.active {
+    color: var(--accent); border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
   .weekly-summary h2 {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px; text-transform: uppercase;
@@ -361,7 +380,7 @@
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
     background: var(--surface2);
     padding: 2px 7px; border-radius: 4px;
-    display: inline-block; margin-top: 3px; margin-right: 6px;
+    display: inline-block; margin-top: 3px; margin-left: 6px;
   }
   .loc-add { color: var(--accent); }
   .loc-del { color: var(--red); }
@@ -686,6 +705,48 @@ var repoCounts = {};
 var repoColors = {};
 var repoFilter = null; // full repo name, or null for all
 var openWeeks = {};
+var BAR_METRICS = [['pushes', 'Pushes'], ['commits', 'Commits'], ['lines', 'Lines']];
+var barMetric = 'pushes';
+try { barMetric = localStorage.getItem('pushlog.barMetric') || 'pushes'; } catch (_) {}
+if (!BAR_METRICS.some(function(m) { return m[0] === barMetric; })) barMetric = 'pushes';
+
+function setBarMetric(m) {
+  barMetric = m;
+  try { localStorage.setItem('pushlog.barMetric', m); } catch (_) {}
+  renderWeeklySummary();
+}
+
+function renderMetricSwitch() {
+  var html = '<div class="metric-switch">';
+  BAR_METRICS.forEach(function(m) {
+    html += '<button class="metric-btn' + (m[0] === barMetric ? ' active' : '') + '" onclick="setBarMetric(\'' + m[0] + '\')">' + m[1] + '</button>';
+  });
+  return html + '</div>';
+}
+
+// Accumulate one push into a week/day bucket, overall and per repo
+function addToBucket(b, p) {
+  var commits = p.size || p.commits.length;
+  var lines = (p.additions || 0) + (p.deletions || 0);
+  b.pushes++;
+  b.commits += commits;
+  b.lines += lines;
+  if (p.additions != null) {
+    b.hasLoc = true;
+    b.additions += p.additions;
+    b.deletions += p.deletions;
+  }
+  var r = b.repos[p.repo] || (b.repos[p.repo] = { pushes: 0, commits: 0, lines: 0 });
+  r.pushes++;
+  r.commits += commits;
+  r.lines += lines;
+}
+
+function newBucket(extra) {
+  var b = { pushes: 0, commits: 0, lines: 0, additions: 0, deletions: 0, hasLoc: false, repos: {} };
+  for (var k in extra) b[k] = extra[k];
+  return b;
+}
 
 function assignRepoColors() {
   repoCounts = {};
@@ -729,8 +790,9 @@ function barSegments(repoMap) {
   var html = '';
   for (var i = 0; i < repoOrder.length; i++) {
     var r = repoOrder[i];
-    if (!repoMap[r]) continue;
-    html += '<div class="bar-seg" style="flex:' + repoMap[r] + ';background:' + repoColors[r] + '" title="' + escHtml(repoShortName(r)) + ': ' + repoMap[r] + '"></div>';
+    var v = repoMap[r] ? repoMap[r][barMetric] : 0;
+    if (!v) continue;
+    html += '<div class="bar-seg" style="flex:' + v + ';background:' + repoColors[r] + '" title="' + escHtml(repoShortName(r)) + ': ' + v + ' ' + barMetric + '"></div>';
   }
   return html;
 }
@@ -758,44 +820,36 @@ function renderWeeklySummary() {
     var p = pushes[i];
     var wk = getWeekKey(p.time);
     if (!weeks[wk]) {
-      weeks[wk] = { pushes: 0, commits: 0, additions: 0, deletions: 0, hasLoc: false, repos: {}, range: getWeekRange(p.time), days: {} };
+      weeks[wk] = newBucket({ range: getWeekRange(p.time), days: {} });
       weekOrder.push(wk);
     }
-    weeks[wk].pushes++;
-    weeks[wk].commits += p.size || p.commits.length;
-    if (p.additions != null) {
-      weeks[wk].hasLoc = true;
-      weeks[wk].additions += p.additions;
-      weeks[wk].deletions += p.deletions;
-    }
-    weeks[wk].repos[p.repo] = (weeks[wk].repos[p.repo] || 0) + 1;
+    addToBucket(weeks[wk], p);
 
     var dk = getDayKey(p.time);
     if (!weeks[wk].days[dk]) {
-      weeks[wk].days[dk] = { pushes: 0, commits: 0, dow: new Date(p.time).getDay(), repos: {} };
+      weeks[wk].days[dk] = newBucket({ dow: new Date(p.time).getDay() });
     }
-    weeks[wk].days[dk].pushes++;
-    weeks[wk].days[dk].commits += p.size || p.commits.length;
-    weeks[wk].days[dk].repos[p.repo] = (weeks[wk].days[dk].repos[p.repo] || 0) + 1;
+    addToBucket(weeks[wk].days[dk], p);
   }
 
-  // Find max pushes for bar scaling
-  var maxPushes = 0;
-  weekOrder.forEach(function(wk) { if (weeks[wk].pushes > maxPushes) maxPushes = weeks[wk].pushes; });
+  // Find max of the selected metric for week-bar scaling
+  var maxWeek = 0;
+  weekOrder.forEach(function(wk) { if (weeks[wk][barMetric] > maxWeek) maxWeek = weeks[wk][barMetric]; });
 
-  // Find max daily pushes across all days for day-bar scaling
-  var maxDayPushes = 0;
+  // Find max daily value across all days for day-bar scaling
+  var maxDay = 0;
   weekOrder.forEach(function(wk) {
     var days = weeks[wk].days;
-    for (var dk in days) { if (days[dk].pushes > maxDayPushes) maxDayPushes = days[dk].pushes; }
+    for (var dk in days) { if (days[dk][barMetric] > maxDay) maxDay = days[dk][barMetric]; }
   });
 
-  var html = '<div class="weekly-summary"><h2>Weekly Summary</h2>' + renderRepoFilter() + '<div class="week-cards">';
+  var html = '<div class="weekly-summary"><div class="summary-head"><h2>Weekly Summary</h2>' + renderMetricSwitch() + '</div>'
+    + renderRepoFilter() + '<div class="week-cards">';
 
   for (var w = 0; w < weekOrder.length; w++) {
     var wk = weekOrder[w];
     var data = weeks[wk];
-    var barPct = maxPushes > 0 ? Math.round((data.pushes / maxPushes) * 100) : 0;
+    var barPct = maxWeek > 0 ? Math.round((data[barMetric] / maxWeek) * 100) : 0;
 
     html += '<div class="week-card" onclick="toggleWeek(this, \'' + wk + '\')">'
       + '<div class="week-label">' + escHtml(data.range) + '</div>'
@@ -818,7 +872,7 @@ function renderWeeklySummary() {
     for (var d = 0; d < dayKeys.length; d++) {
       var dk = dayKeys[d];
       var dd = data.days[dk];
-      var dayPct = maxDayPushes > 0 ? Math.round((dd.pushes / maxDayPushes) * 100) : 0;
+      var dayPct = maxDay > 0 ? Math.round((dd[barMetric] / maxDay) * 100) : 0;
       html += '<div class="day-bar-row" onclick="event.stopPropagation();var t=document.getElementById(\'day-' + dk + '\');if(t)t.scrollIntoView({behavior:\'smooth\',block:\'start\'})">'
         + '<div class="day-bar-label">' + DAY_NAMES[dd.dow] + '</div>'
         + '<div class="day-bar-track"><div class="day-bar-fill" style="width:' + dayPct + '%">' + barSegments(dd.repos) + '</div></div>'
@@ -915,8 +969,8 @@ function renderPushList() {
         + '<div class="push-time">' + timeStr + '</div>'
         + '<div class="push-body">'
         + '<div class="push-repo"><span class="owner">' + escHtml(owner) + '/</span>' + escHtml(repo) + '</div>'
-        + (p.additions != null ? '<span class="push-loc">' + locHtml(p.additions, p.deletions) + '</span>' : '')
         + '<span class="push-branch">' + escHtml(p.branch) + '</span>'
+        + (p.additions != null ? '<span class="push-loc">' + locHtml(p.additions, p.deletions) + '</span>' : '')
         + (commitsHtml ? '<div class="push-commits">' + commitsHtml + '</div>' : '')
         + '</div></li>';
     }
