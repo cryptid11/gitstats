@@ -228,12 +228,33 @@
   .week-repo-tag {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
-    color: var(--purple);
-    background: #a78bfa10;
-    border: 1px solid #a78bfa20;
+    color: var(--c, var(--purple));
+    background: color-mix(in srgb, var(--c, var(--purple)) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c, var(--purple)) 25%, transparent);
     padding: 2px 8px;
     border-radius: 4px;
+    cursor: pointer;
   }
+  .week-repo-tag:hover { border-color: var(--c, var(--purple)); }
+
+  /* ── Repo filter ── */
+  .repo-filter {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 14px;
+  }
+  .repo-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px; padding: 5px 11px;
+    cursor: pointer; transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .repo-chip:hover { color: var(--text); border-color: var(--text-dim); }
+  .repo-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+  .repo-chip .cnt { opacity: 0.5; }
+  .repo-chip.active { color: var(--text); border-color: var(--c, var(--accent)); }
 
   .week-card { cursor: pointer; transition: border-color 0.2s; }
   .week-card:hover { border-color: var(--text-dim); }
@@ -248,10 +269,12 @@
 
   .week-bar-fill {
     height: 100%;
-    background: var(--accent);
+    display: flex;
     border-radius: 2px;
+    overflow: hidden;
     transition: width 0.4s ease;
   }
+  .bar-seg { height: 100%; }
 
   .week-days {
     grid-column: 1 / -1;
@@ -284,8 +307,9 @@
   }
   .day-bar-fill {
     height: 100%;
-    background: var(--blue);
+    display: flex;
     border-radius: 3px;
+    overflow: hidden;
     transition: width 0.3s ease;
   }
 
@@ -639,15 +663,83 @@ function getDayKey(date) {
 
 var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+/* ── Repo colors & filter ──────────────────────────────── */
+var REPO_PALETTE = ['#6ee7b7', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c', '#22d3ee', '#f87171', '#a3e635', '#e879f9', '#2dd4bf', '#fde047'];
+var repoOrder = [];   // full repo names, most pushes first
+var repoCounts = {};
+var repoColors = {};
+var repoFilter = null; // full repo name, or null for all
+var openWeeks = {};
+
+function assignRepoColors() {
+  repoCounts = {};
+  for (var i = 0; i < allPushes.length; i++) {
+    repoCounts[allPushes[i].repo] = (repoCounts[allPushes[i].repo] || 0) + 1;
+  }
+  repoOrder = Object.keys(repoCounts).sort(function(a, b) {
+    return repoCounts[b] - repoCounts[a] || a.localeCompare(b);
+  });
+  repoColors = {};
+  repoOrder.forEach(function(r, i) {
+    // Past the palette, spread extra hues by the golden angle
+    repoColors[r] = i < REPO_PALETTE.length ? REPO_PALETTE[i] : 'hsl(' + Math.round(i * 137.508) % 360 + ', 70%, 65%)';
+  });
+  if (repoFilter && !repoCounts[repoFilter]) repoFilter = null;
+}
+
+function repoShortName(repo) {
+  return repo.split('/')[1] || repo;
+}
+
+function setRepoFilter(idx) {
+  var repo = idx === null ? null : repoOrder[idx];
+  repoFilter = repo === repoFilter ? null : repo;
+  log('info', repoFilter ? 'Filter: ' + repoFilter : 'Filter cleared');
+  renderAll();
+}
+
+function visiblePushes() {
+  if (!repoFilter) return allPushes;
+  return allPushes.filter(function(p) { return p.repo === repoFilter; });
+}
+
+function toggleWeek(card, wk) {
+  openWeeks[wk] = !openWeeks[wk];
+  card.querySelector('.week-days').classList.toggle('open', openWeeks[wk]);
+}
+
+// Stacked bar segments, one per repo, in global repo order
+function barSegments(repoMap) {
+  var html = '';
+  for (var i = 0; i < repoOrder.length; i++) {
+    var r = repoOrder[i];
+    if (!repoMap[r]) continue;
+    html += '<div class="bar-seg" style="flex:' + repoMap[r] + ';background:' + repoColors[r] + '" title="' + escHtml(repoShortName(r)) + ': ' + repoMap[r] + '"></div>';
+  }
+  return html;
+}
+
+function renderRepoFilter() {
+  var html = '<div class="repo-filter">'
+    + '<button class="repo-chip' + (repoFilter ? '' : ' active') + '" onclick="setRepoFilter(null)">All <span class="cnt">' + allPushes.length + '</span></button>';
+  for (var i = 0; i < repoOrder.length; i++) {
+    var r = repoOrder[i];
+    html += '<button class="repo-chip' + (r === repoFilter ? ' active' : '') + '" style="--c:' + repoColors[r] + '" title="' + escHtml(r) + '" onclick="setRepoFilter(' + i + ')">'
+      + '<span class="dot"></span>' + escHtml(repoShortName(r)) + ' <span class="cnt">' + repoCounts[r] + '</span></button>';
+  }
+  return html + '</div>';
+}
+
 function renderWeeklySummary() {
   var el = document.getElementById('summary');
   if (allPushes.length === 0) { el.innerHTML = ''; return; }
+  var pushes = visiblePushes();
 
   // Group by week, and by day within each week
   var weeks = {};
   var weekOrder = [];
-  for (var i = 0; i < allPushes.length; i++) {
-    var p = allPushes[i];
+  for (var i = 0; i < pushes.length; i++) {
+    var p = pushes[i];
     var wk = getWeekKey(p.time);
     if (!weeks[wk]) {
       weeks[wk] = { pushes: 0, commits: 0, repos: {}, range: getWeekRange(p.time), days: {} };
@@ -655,15 +747,15 @@ function renderWeeklySummary() {
     }
     weeks[wk].pushes++;
     weeks[wk].commits += p.size || p.commits.length;
-    var repoShort = p.repo.split('/')[1] || p.repo;
-    weeks[wk].repos[repoShort] = true;
+    weeks[wk].repos[p.repo] = (weeks[wk].repos[p.repo] || 0) + 1;
 
     var dk = getDayKey(p.time);
     if (!weeks[wk].days[dk]) {
-      weeks[wk].days[dk] = { pushes: 0, commits: 0, dow: new Date(p.time).getDay() };
+      weeks[wk].days[dk] = { pushes: 0, commits: 0, dow: new Date(p.time).getDay(), repos: {} };
     }
     weeks[wk].days[dk].pushes++;
     weeks[wk].days[dk].commits += p.size || p.commits.length;
+    weeks[wk].days[dk].repos[p.repo] = (weeks[wk].days[dk].repos[p.repo] || 0) + 1;
   }
 
   // Find max pushes for bar scaling
@@ -677,29 +769,29 @@ function renderWeeklySummary() {
     for (var dk in days) { if (days[dk].pushes > maxDayPushes) maxDayPushes = days[dk].pushes; }
   });
 
-  var html = '<div class="weekly-summary"><h2>Weekly Summary</h2><div class="week-cards">';
+  var html = '<div class="weekly-summary"><h2>Weekly Summary</h2>' + renderRepoFilter() + '<div class="week-cards">';
 
   for (var w = 0; w < weekOrder.length; w++) {
     var wk = weekOrder[w];
     var data = weeks[wk];
-    var repos = Object.keys(data.repos);
     var barPct = maxPushes > 0 ? Math.round((data.pushes / maxPushes) * 100) : 0;
 
-    html += '<div class="week-card" onclick="this.querySelector(\'.week-days\').classList.toggle(\'open\')">'
+    html += '<div class="week-card" onclick="toggleWeek(this, \'' + wk + '\')">'
       + '<div class="week-label">' + escHtml(data.range) + '</div>'
       + '<div class="week-stats">'
       + '<div class="week-stat"><div class="num">' + data.pushes + '</div><div class="lbl">pushes</div></div>'
       + '<div class="week-stat"><div class="num">' + data.commits + '</div><div class="lbl">commits</div></div>'
       + '</div>'
-      + '<div class="week-bar-track"><div class="week-bar-fill" style="width:' + barPct + '%"></div></div>'
+      + '<div class="week-bar-track"><div class="week-bar-fill" style="width:' + barPct + '%">' + barSegments(data.repos) + '</div></div>'
       + '<div class="week-repos">';
 
-    for (var r = 0; r < repos.length; r++) {
-      html += '<span class="week-repo-tag">' + escHtml(repos[r]) + '</span>';
+    for (var r = 0; r < repoOrder.length; r++) {
+      if (!data.repos[repoOrder[r]]) continue;
+      html += '<span class="week-repo-tag" style="--c:' + repoColors[repoOrder[r]] + '" title="' + escHtml(repoOrder[r]) + '" onclick="event.stopPropagation();setRepoFilter(' + r + ')">' + escHtml(repoShortName(repoOrder[r])) + '</span>';
     }
 
     // Daily breakdown bars
-    html += '</div><div class="week-days">';
+    html += '</div><div class="week-days' + (openWeeks[wk] ? ' open' : '') + '">';
     var dayKeys = Object.keys(data.days).sort();
     for (var d = 0; d < dayKeys.length; d++) {
       var dk = dayKeys[d];
@@ -707,7 +799,7 @@ function renderWeeklySummary() {
       var dayPct = maxDayPushes > 0 ? Math.round((dd.pushes / maxDayPushes) * 100) : 0;
       html += '<div class="day-bar-row" onclick="event.stopPropagation();var t=document.getElementById(\'day-' + dk + '\');if(t)t.scrollIntoView({behavior:\'smooth\',block:\'start\'})">'
         + '<div class="day-bar-label">' + DAY_NAMES[dd.dow] + '</div>'
-        + '<div class="day-bar-track"><div class="day-bar-fill" style="width:' + dayPct + '%"></div></div>'
+        + '<div class="day-bar-track"><div class="day-bar-fill" style="width:' + dayPct + '%">' + barSegments(dd.repos) + '</div></div>'
         + '<div class="day-bar-count">' + dd.pushes + 'p · ' + dd.commits + 'c</div>'
         + '</div>';
     }
@@ -746,8 +838,9 @@ function renderAll() {
   exportBtn.style.display = '';
   dpBtn.style.display = '';
   bmBtn.style.display = document.getElementById('tokenInput').value.trim() ? '' : 'none';
-  badge.textContent = allPushes.length + ' push' + (allPushes.length !== 1 ? 'es' : '');
-
+  assignRepoColors();
+  var shownCount = visiblePushes().length;
+  badge.textContent = shownCount + ' push' + (shownCount !== 1 ? 'es' : '') + (repoFilter ? ' · ' + repoShortName(repoFilter) : '');
 
   renderWeeklySummary();
   renderPushList();
@@ -755,11 +848,12 @@ function renderAll() {
 
 function renderPushList() {
   var output = document.getElementById('output');
+  var visible = visiblePushes();
 
   var groups = {};
   var groupOrder = [];
-  for (var i = 0; i < allPushes.length; i++) {
-    var p = allPushes[i];
+  for (var i = 0; i < visible.length; i++) {
+    var p = visible[i];
     var d = new Date(p.time);
     var key = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
     if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
