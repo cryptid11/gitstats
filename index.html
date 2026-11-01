@@ -244,17 +244,17 @@
   }
   .repo-chip {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-dim);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 20px; padding: 5px 11px;
+    font-size: 11px;
+    color: var(--c, var(--accent));
+    background: color-mix(in srgb, var(--c, var(--accent)) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 25%, transparent);
+    border-radius: 4px; padding: 3px 9px;
     cursor: pointer; transition: all 0.15s;
     display: inline-flex; align-items: center; gap: 6px;
   }
-  .repo-chip:hover { color: var(--text); border-color: var(--text-dim); }
-  .repo-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+  .repo-chip:hover { border-color: var(--c, var(--accent)); }
   .repo-chip .cnt { opacity: 0.5; }
-  .repo-chip.active { color: var(--text); border-color: var(--c, var(--accent)); }
+  .repo-chip.active { border-color: var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 20%, transparent); }
 
   .week-card { cursor: pointer; transition: border-color 0.2s; }
   .week-card:hover { border-color: var(--text-dim); }
@@ -725,7 +725,7 @@ function renderRepoFilter() {
   for (var i = 0; i < repoOrder.length; i++) {
     var r = repoOrder[i];
     html += '<button class="repo-chip' + (r === repoFilter ? ' active' : '') + '" style="--c:' + repoColors[r] + '" title="' + escHtml(r) + '" onclick="setRepoFilter(' + i + ')">'
-      + '<span class="dot"></span>' + escHtml(repoShortName(r)) + ' <span class="cnt">' + repoCounts[r] + '</span></button>';
+      + escHtml(repoShortName(r)) + ' <span class="cnt">' + repoCounts[r] + '</span></button>';
   }
   return html + '</div>';
 }
