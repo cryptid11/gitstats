@@ -206,6 +206,7 @@
     text-align: right;
   }
 
+  .week-stat .num .loc-add, .week-stat .num .loc-del { font-size: 14px; }
   .week-stat .num {
     font-family: 'JetBrains Mono', monospace;
     font-size: 18px; font-weight: 600;
@@ -356,6 +357,14 @@
     padding: 2px 7px; border-radius: 4px;
     display: inline-block; margin-top: 3px;
   }
+  .push-loc {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    background: var(--surface2);
+    padding: 2px 7px; border-radius: 4px;
+    display: inline-block; margin-top: 3px; margin-right: 6px;
+  }
+  .loc-add { color: var(--accent); }
+  .loc-del { color: var(--red); }
   .push-commits { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
   .push-commits .commit-msg { color: var(--text); opacity: 0.75; }
   .commit-sha { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--orange); opacity: 0.7; }
@@ -610,6 +619,13 @@ async function fetchPushes() {
         }).then(function(r) { return r.ok ? r.json() : null; }).then(function(cmp) {
           if (!cmp) return;
           push.size = cmp.total_commits || cmp.ahead_by || 0;
+          // LOC from the diff's file list (GitHub caps it at 300 files)
+          push.additions = 0;
+          push.deletions = 0;
+          (cmp.files || []).forEach(function(f) {
+            push.additions += f.additions || 0;
+            push.deletions += f.deletions || 0;
+          });
           push.commits = (cmp.commits || []).map(function(c) {
             return { sha: c.sha.slice(0, 7), message: (c.commit.message || '').split('\n')[0] };
           });
@@ -742,11 +758,16 @@ function renderWeeklySummary() {
     var p = pushes[i];
     var wk = getWeekKey(p.time);
     if (!weeks[wk]) {
-      weeks[wk] = { pushes: 0, commits: 0, repos: {}, range: getWeekRange(p.time), days: {} };
+      weeks[wk] = { pushes: 0, commits: 0, additions: 0, deletions: 0, hasLoc: false, repos: {}, range: getWeekRange(p.time), days: {} };
       weekOrder.push(wk);
     }
     weeks[wk].pushes++;
     weeks[wk].commits += p.size || p.commits.length;
+    if (p.additions != null) {
+      weeks[wk].hasLoc = true;
+      weeks[wk].additions += p.additions;
+      weeks[wk].deletions += p.deletions;
+    }
     weeks[wk].repos[p.repo] = (weeks[wk].repos[p.repo] || 0) + 1;
 
     var dk = getDayKey(p.time);
@@ -781,6 +802,7 @@ function renderWeeklySummary() {
       + '<div class="week-stats">'
       + '<div class="week-stat"><div class="num">' + data.pushes + '</div><div class="lbl">pushes</div></div>'
       + '<div class="week-stat"><div class="num">' + data.commits + '</div><div class="lbl">commits</div></div>'
+      + (data.hasLoc ? '<div class="week-stat"><div class="num">' + locHtml(data.additions, data.deletions) + '</div><div class="lbl">lines</div></div>' : '')
       + '</div>'
       + '<div class="week-bar-track"><div class="week-bar-fill" style="width:' + barPct + '%">' + barSegments(data.repos) + '</div></div>'
       + '<div class="week-repos">';
@@ -893,6 +915,7 @@ function renderPushList() {
         + '<div class="push-time">' + timeStr + '</div>'
         + '<div class="push-body">'
         + '<div class="push-repo"><span class="owner">' + escHtml(owner) + '/</span>' + escHtml(repo) + '</div>'
+        + (p.additions != null ? '<span class="push-loc">' + locHtml(p.additions, p.deletions) + '</span>' : '')
         + '<span class="push-branch">' + escHtml(p.branch) + '</span>'
         + (commitsHtml ? '<div class="push-commits">' + commitsHtml + '</div>' : '')
         + '</div></li>';
@@ -901,6 +924,16 @@ function renderPushList() {
   }
 
   output.innerHTML = html;
+}
+
+function fmtNum(n) {
+  if (n >= 10000) return Math.round(n / 1000) + 'k';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(n);
+}
+
+function locHtml(add, del) {
+  return '<span class="loc-add">+' + fmtNum(add) + '</span> <span class="loc-del">−' + fmtNum(del) + '</span>';
 }
 
 function escHtml(s) {
