@@ -74,6 +74,7 @@
   .btn-ghost { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
   .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
   .btn-sm { padding: 6px 12px; font-size: 11px; }
+  .btn-icon { width: 42px; height: 42px; padding: 0; justify-content: center; font-size: 15px; }
 
   .badge {
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -89,14 +90,20 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 24px; margin-bottom: 24px;
+    margin-bottom: 24px; overflow: hidden;
   }
-  .auth-panel label {
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; min-height: 45px;
+    cursor: pointer; user-select: none;
+  }
+  .panel-header span {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px; text-transform: uppercase;
     letter-spacing: 1px; color: var(--text-dim);
-    display: block; margin-bottom: 8px;
   }
+  .auth-body { padding: 16px; border-top: 1px solid var(--border); background: #0a0a0d; }
+  .auth-body.closed { display: none; }
   .input-row { display: flex; gap: 10px; }
   .input-row input {
     flex: 1; background: var(--bg);
@@ -174,7 +181,7 @@
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 14px;
   }
-  .summary-head h2 { margin-bottom: 0 !important; }
+  .summary-head h2 { margin-bottom: 0 !important; white-space: nowrap; }
   /* Segmented pill with a sliding thumb */
   .metric-switch {
     position: relative;
@@ -408,6 +415,7 @@
     .push-item { grid-template-columns: 50px 1fr; gap: 0 10px; }
     .top-actions { gap: 6px; }
     .btn { padding: 10px 14px; font-size: 12px; }
+    .btn-icon { padding: 0; font-size: 15px; }
     .week-card { grid-template-columns: 1fr; }
     .week-stats { justify-content: flex-start; }
   }
@@ -425,9 +433,9 @@
   <div class="top-actions">
     <button class="btn btn-ghost" id="importBtn" onclick="document.getElementById('importInput').click()">↑ Import JSON</button>
     <input type="file" id="importInput" accept=".json" onchange="importData(event)">
-    <button class="btn btn-ghost" id="exportBtn" onclick="exportData()" style="display:none;">↓ Export JSON</button>
-    <button class="btn btn-ghost" id="dpasteExportBtn" onclick="exportToDpaste()" style="display:none;">⬆ Share via dpaste</button>
-    <button class="btn btn-ghost" id="bookmarkBtn" onclick="generateBookmark()" style="display:none;">★ Bookmark</button>
+    <button class="btn btn-ghost btn-icon" id="exportBtn" onclick="exportData()" title="Export JSON" aria-label="Export JSON" style="display:none;">↓</button>
+    <button class="btn btn-ghost btn-icon" id="dpasteExportBtn" onclick="exportToDpaste()" title="Share via dpaste" aria-label="Share via dpaste" style="display:none;">⬆</button>
+    <button class="btn btn-ghost btn-icon" id="bookmarkBtn" onclick="generateBookmark()" title="Bookmark" aria-label="Bookmark" style="display:none;">★</button>
     <button class="btn btn-ghost" id="dpasteImportBtn" onclick="promptDpasteImport()">⬇ Load from dpaste</button>
     <div class="spacer"></div>
     <span class="badge" id="countBadge" style="display:none;">0 pushes</span>
@@ -435,7 +443,10 @@
   </div>
 
   <div class="auth-panel">
-    <label>GitHub Personal Access Token</label>
+    <div class="panel-header" onclick="toggleAuth()">
+      <span>GitHub Personal Access Token</span>
+    </div>
+    <div class="auth-body" id="authBody">
     <div class="input-row">
       <input type="password" id="tokenInput" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
       <button class="btn btn-primary" id="fetchBtn" onclick="fetchPushes()">Fetch</button>
@@ -444,6 +455,7 @@
       Needs <code>repo</code> or <code>read:user</code> scope.
       Token stays in your browser only.
     </p>
+    </div>
   </div>
 
   <div class="debug-panel">
@@ -491,6 +503,10 @@ function log(level, msg) {
 function toggleDebug() {
   logOpen = !logOpen;
   document.getElementById('debugBody').classList.toggle('open', logOpen);
+}
+
+function toggleAuth() {
+  document.getElementById('authBody').classList.toggle('closed');
 }
 
 function clearLogs() {
@@ -1167,7 +1183,7 @@ async function exportToDpaste() {
   if (allPushes.length === 0) return;
   var btn = document.getElementById('dpasteExportBtn');
   var orig = btn.textContent;
-  btn.textContent = 'Uploading…';
+  btn.textContent = '…';
   btn.disabled = true;
 
   try {
