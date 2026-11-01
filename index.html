@@ -74,7 +74,6 @@
   .btn-ghost { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
   .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
   .btn-sm { padding: 6px 12px; font-size: 11px; }
-  .btn-icon { width: 42px; height: 42px; padding: 0; justify-content: center; font-size: 15px; }
 
   .badge {
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -86,15 +85,41 @@
   #importInput { display: none; }
 
   /* ── Auth panel ── */
-  .auth-panel {
-    background: var(--surface);
+  /* ── Token + debug panels: one joined card, collapsible as a unit ── */
+  .panel-group-wrap {
+    display: grid; grid-template-rows: 1fr;
+    transform-origin: top right;
+    transition: grid-template-rows 0.22s ease, opacity 0.18s ease, transform 0.22s ease;
+  }
+  .panel-group-wrap > .panel-group { min-height: 0; overflow: hidden; }
+  .panel-group-wrap.collapsed { grid-template-rows: 0fr; opacity: 0; transform: scale(0.92); pointer-events: none; }
+  .panel-group {
     border: 1px solid var(--border);
     border-radius: 12px;
-    margin-bottom: 24px; overflow: hidden;
+    margin-bottom: 24px;
   }
+  .no-anim, .no-anim * { transition: none !important; }
+
+  .panels-dock {
+    position: absolute; top: 32px; right: 20px;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface); color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; cursor: pointer;
+    opacity: 0; transform: scale(0.6); pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.3, 1.3, 0.5, 1), border-color 0.15s, color 0.15s;
+  }
+  .panels-dock.show { opacity: 1; transform: none; pointer-events: auto; }
+  .panels-dock:hover { color: var(--text); border-color: var(--text-dim); }
+  .panels-dock .dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+  .panels-dock .dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
+  .panels-dock .dot.err { background: var(--red); }
+
+  .auth-panel { background: var(--surface); }
   .panel-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 16px; min-height: 45px;
+    padding: 10px 16px;
     cursor: pointer; user-select: none;
   }
   .panel-header span {
@@ -120,9 +145,7 @@
   /* ── Debug console ── */
   .debug-panel {
     background: #0a0a0d;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin-bottom: 24px; overflow: hidden;
+    border-top: 1px solid var(--border);
   }
   .debug-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -411,11 +434,13 @@
 
   @media (max-width: 500px) {
     .container { padding: 20px 14px 60px; }
+    .panels-dock { top: 20px; right: 14px; }
     .input-row { flex-direction: column; }
     .push-item { grid-template-columns: 50px 1fr; gap: 0 10px; }
     .top-actions { gap: 6px; }
     .btn { padding: 10px 14px; font-size: 12px; }
-    .btn-icon { padding: 0; font-size: 15px; }
+    #exportBtn, #dpasteExportBtn, #bookmarkBtn { width: 42px; height: 42px; padding: 0; justify-content: center; font-size: 15px; }
+    .btn-label { display: none; }
     .week-card { grid-template-columns: 1fr; }
     .week-stats { justify-content: flex-start; }
   }
@@ -433,18 +458,25 @@
   <div class="top-actions">
     <button class="btn btn-ghost" id="importBtn" onclick="document.getElementById('importInput').click()">↑ Import JSON</button>
     <input type="file" id="importInput" accept=".json" onchange="importData(event)">
-    <button class="btn btn-ghost btn-icon" id="exportBtn" onclick="exportData()" title="Export JSON" aria-label="Export JSON" style="display:none;">↓</button>
-    <button class="btn btn-ghost btn-icon" id="dpasteExportBtn" onclick="exportToDpaste()" title="Share via dpaste" aria-label="Share via dpaste" style="display:none;">⬆</button>
-    <button class="btn btn-ghost btn-icon" id="bookmarkBtn" onclick="generateBookmark()" title="Bookmark" aria-label="Bookmark" style="display:none;">★</button>
+    <button class="btn btn-ghost" id="exportBtn" onclick="exportData()" title="Export JSON" aria-label="Export JSON" style="display:none;">↓<span class="btn-label"> Export JSON</span></button>
+    <button class="btn btn-ghost" id="dpasteExportBtn" onclick="exportToDpaste()" title="Share via dpaste" aria-label="Share via dpaste" style="display:none;">⬆<span class="btn-label"> Share via dpaste</span></button>
+    <button class="btn btn-ghost" id="bookmarkBtn" onclick="generateBookmark()" title="Bookmark" aria-label="Bookmark" style="display:none;">★<span class="btn-label"> Bookmark</span></button>
     <button class="btn btn-ghost" id="dpasteImportBtn" onclick="promptDpasteImport()">⬇ Load from dpaste</button>
     <div class="spacer"></div>
     <span class="badge" id="countBadge" style="display:none;">0 pushes</span>
     <span class="badge" id="dpasteNotify" style="display:none; color:var(--accent); border-color:var(--accent);"></span>
   </div>
 
+  <button class="panels-dock" id="panelsDock" onclick="setPanelsCollapsed(false)" title="Show token & debug log" aria-label="Show token and debug log">
+    <span class="dock-arrow">↓</span><span class="dot" id="dockDot"></span>
+  </button>
+
+  <div class="panel-group-wrap" id="panelGroup">
+  <div class="panel-group">
   <div class="auth-panel">
     <div class="panel-header" onclick="toggleAuth()">
       <span>GitHub Personal Access Token</span>
+      <button class="btn btn-ghost btn-sm group-collapse" onclick="event.stopPropagation(); setPanelsCollapsed(true)" title="Collapse token & debug log" aria-label="Collapse token and debug log">↑</button>
     </div>
     <div class="auth-body" id="authBody">
     <div class="input-row">
@@ -467,6 +499,8 @@
       </div>
     </div>
     <div class="debug-body" id="debugBody"></div>
+  </div>
+  </div>
   </div>
 
   <div id="summary"></div>
@@ -495,14 +529,29 @@ function log(level, msg) {
 
   var dot = document.getElementById('debugDot');
   if (level === 'error') {
-    dot.className = 'dot err';
+    setDebugDot('dot err');
     if (!logOpen) toggleDebug();
-  } else if (level === 'success' && !dot.classList.contains('err')) dot.className = 'dot active';
+    if (panelsCollapsed) setPanelsCollapsed(false);
+  } else if (level === 'success' && !dot.classList.contains('err')) setDebugDot('dot active');
 }
 
 function toggleDebug() {
   logOpen = !logOpen;
   document.getElementById('debugBody').classList.toggle('open', logOpen);
+}
+
+var panelsCollapsed = false;
+
+function setPanelsCollapsed(collapsed) {
+  panelsCollapsed = collapsed;
+  document.getElementById('panelGroup').classList.toggle('collapsed', collapsed);
+  document.getElementById('panelsDock').classList.toggle('show', collapsed);
+  try { localStorage.setItem('pushlog.panelsCollapsed', collapsed ? '1' : '0'); } catch (_) {}
+}
+
+function setDebugDot(cls) {
+  document.getElementById('debugDot').className = cls;
+  document.getElementById('dockDot').className = cls;
 }
 
 function toggleAuth() {
@@ -512,7 +561,7 @@ function toggleAuth() {
 function clearLogs() {
   logEntries.length = 0;
   document.getElementById('debugBody').innerHTML = '';
-  document.getElementById('debugDot').className = 'dot';
+  setDebugDot('dot');
   document.getElementById('logCount').textContent = '0';
 }
 
@@ -1079,6 +1128,17 @@ document.getElementById('tokenInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') fetchPushes();
 });
 
+(function() {
+  var saved = null;
+  try { saved = localStorage.getItem('pushlog.panelsCollapsed'); } catch (_) {}
+  if (saved !== '1') return;
+  var els = [document.getElementById('panelGroup'), document.getElementById('panelsDock')];
+  els.forEach(function(e) { e.classList.add('no-anim'); });
+  setPanelsCollapsed(true);
+  // Force a style flush while transitions are off, then re-enable them
+  els.forEach(function(e) { void e.offsetWidth; e.classList.remove('no-anim'); });
+})();
+
 log('info', 'Push Log ready');
 log('info', 'UA: ' + navigator.userAgent.slice(0, 100));
 
@@ -1182,8 +1242,8 @@ async function fetchFromDpaste(shortCode, key) {
 async function exportToDpaste() {
   if (allPushes.length === 0) return;
   var btn = document.getElementById('dpasteExportBtn');
-  var orig = btn.textContent;
-  btn.textContent = '…';
+  var orig = btn.innerHTML;
+  btn.innerHTML = '…<span class="btn-label"> Uploading…</span>';
   btn.disabled = true;
 
   try {
@@ -1211,7 +1271,7 @@ async function exportToDpaste() {
     log('error', 'dpaste export failed: ' + err.message);
     showNotify('Upload failed', 4000);
   } finally {
-    btn.textContent = orig;
+    btn.innerHTML = orig;
     btn.disabled = false;
   }
 }
