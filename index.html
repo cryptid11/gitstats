@@ -175,20 +175,34 @@
     gap: 10px; margin-bottom: 14px;
   }
   .summary-head h2 { margin-bottom: 0 !important; }
-  .metric-switch { display: flex; gap: 4px; }
-  .metric-btn {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-dim);
+  /* Segmented pill with a sliding thumb */
+  .metric-switch {
+    position: relative;
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    padding: 2px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 4px; padding: 3px 9px;
-    cursor: pointer; transition: all 0.15s;
+    border-radius: 20px;
   }
-  .metric-btn:hover { color: var(--text); border-color: var(--text-dim); }
-  .metric-btn.active {
-    color: var(--accent); border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  .metric-thumb {
+    position: absolute; top: 2px; bottom: 2px; left: 2px;
+    width: calc((100% - 4px) / 3);
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    transition: transform 0.18s cubic-bezier(0.3, 1.3, 0.5, 1);
   }
+  .metric-btn {
+    position: relative; z-index: 1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    line-height: 1; color: var(--text-dim);
+    background: none; border: none;
+    padding: 4px 10px;
+    cursor: pointer; transition: color 0.15s;
+  }
+  .metric-btn:hover { color: var(--text); }
+  .metric-btn.active { color: var(--accent); }
   .weekly-summary h2 {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px; text-transform: uppercase;
@@ -710,14 +724,30 @@ var barMetric = 'pushes';
 try { barMetric = localStorage.getItem('pushlog.barMetric') || 'pushes'; } catch (_) {}
 if (!BAR_METRICS.some(function(m) { return m[0] === barMetric; })) barMetric = 'pushes';
 
+function metricIndex(m) {
+  for (var i = 0; i < BAR_METRICS.length; i++) if (BAR_METRICS[i][0] === m) return i;
+  return 0;
+}
+
 function setBarMetric(m) {
+  if (m === barMetric) return;
+  var from = metricIndex(barMetric);
   barMetric = m;
   try { localStorage.setItem('pushlog.barMetric', m); } catch (_) {}
   renderWeeklySummary();
+
+  // Re-render resets the thumb; jump it back to the old slot, then slide
+  var thumb = document.querySelector('.metric-thumb');
+  if (!thumb) return;
+  thumb.style.transition = 'none';
+  thumb.style.transform = 'translateX(' + from * 100 + '%)';
+  void thumb.offsetWidth;
+  thumb.style.transition = '';
+  thumb.style.transform = 'translateX(' + metricIndex(m) * 100 + '%)';
 }
 
 function renderMetricSwitch() {
-  var html = '<div class="metric-switch">';
+  var html = '<div class="metric-switch"><div class="metric-thumb" style="transform:translateX(' + metricIndex(barMetric) * 100 + '%)"></div>';
   BAR_METRICS.forEach(function(m) {
     html += '<button class="metric-btn' + (m[0] === barMetric ? ' active' : '') + '" onclick="setBarMetric(\'' + m[0] + '\')">' + m[1] + '</button>';
   });
