@@ -201,13 +201,13 @@
   /* ── Weekly summary ── */
   .weekly-summary { margin-bottom: 32px; }
   .summary-head {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 14px;
   }
   .summary-head h2 { margin-bottom: 0 !important; white-space: nowrap; }
   /* Segmented pill with a sliding thumb */
   .metric-switch {
-    position: relative;
+    position: relative; margin-left: auto;
     display: grid; grid-template-columns: repeat(3, 1fr);
     padding: 2px;
     background: var(--surface);
@@ -435,6 +435,8 @@
   @media (max-width: 500px) {
     .container { padding: 20px 14px 60px; }
     .panels-dock { top: 20px; right: 14px; }
+    .summary-head h2 { letter-spacing: 1px; }
+    .metric-btn { padding: 4px 7px; letter-spacing: 0.5px; }
     .input-row { flex-direction: column; }
     .push-item { grid-template-columns: 50px 1fr; gap: 0 10px; }
     .top-actions { gap: 6px; }
