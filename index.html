@@ -43,7 +43,7 @@
     padding: 32px 20px 80px;
   }
 
-  header { margin-bottom: 28px; }
+  header { margin-bottom: 16px; }
   header h1 {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 600; font-size: 22px;
@@ -56,8 +56,9 @@
   /* ── Top actions — always visible ── */
   .top-actions {
     display: flex; gap: 10px; flex-wrap: wrap;
-    margin-bottom: 24px; align-items: center;
+    margin-bottom: 16px; align-items: center;
   }
+  .top-actions .btn { height: 42px; padding-top: 0; padding-bottom: 0; }
 
   .btn {
     font-family: 'DM Sans', sans-serif;
@@ -82,21 +83,33 @@
   }
 
   .top-actions .spacer { flex: 1; }
+  .top-stats { display: flex; gap: 10px; }
+  .top-stat {
+    height: 42px; min-width: 72px; padding: 0 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace; color: var(--text);
+  }
+  .top-stat .num { font-size: 13px; font-weight: 600; line-height: 1; }
+  .top-stat .lbl { font-size: 8px; line-height: 1; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-dim); }
   #importInput { display: none; }
 
   /* ── Auth panel ── */
   /* ── Token + debug panels: one joined card, collapsible as a unit ── */
   .panel-group-wrap {
     display: grid; grid-template-rows: 1fr;
+    margin-bottom: 24px;
     transform-origin: top right;
-    transition: grid-template-rows 0.22s ease, opacity 0.18s ease, transform 0.22s ease;
+    transition: grid-template-rows 0.22s ease, margin-bottom 0.22s ease, opacity 0.18s ease, transform 0.22s ease;
   }
   .panel-group-wrap > .panel-group { min-height: 0; overflow: hidden; }
-  .panel-group-wrap.collapsed { grid-template-rows: 0fr; opacity: 0; transform: scale(0.92); pointer-events: none; }
+  .panel-group-wrap.collapsed > .panel-group { border-width: 0; }
+  .panel-group-wrap.collapsed { grid-template-rows: 0fr; margin-bottom: 0; opacity: 0; transform: scale(0.92); pointer-events: none; }
   .panel-group {
     border: 1px solid var(--border);
     border-radius: 12px;
-    margin-bottom: 24px;
   }
   .no-anim, .no-anim * { transition: none !important; }
 
@@ -440,6 +453,10 @@
     .input-row { flex-direction: column; }
     .push-item { grid-template-columns: 50px 1fr; gap: 0 10px; }
     .top-actions { gap: 6px; }
+    .top-actions .spacer { display: none; }
+    .top-stats { flex: 1; min-width: 0; gap: 6px; }
+    .top-stat { flex: 1 1 0; min-width: 0; padding: 0 2px; }
+    .top-stat .num { font-size: 12px; }
     .btn { padding: 10px 14px; font-size: 12px; }
     #exportBtn, #dpasteExportBtn, #bookmarkBtn { width: 42px; height: 42px; padding: 0; justify-content: center; font-size: 15px; }
     .btn-label { display: none; }
@@ -465,7 +482,7 @@
     <button class="btn btn-ghost" id="bookmarkBtn" onclick="generateBookmark()" title="Bookmark" aria-label="Bookmark" style="display:none;">★<span class="btn-label"> Bookmark</span></button>
     <button class="btn btn-ghost" id="dpasteImportBtn" onclick="promptDpasteImport()">⬇ Load from dpaste</button>
     <div class="spacer"></div>
-    <span class="badge" id="countBadge" style="display:none;">0 pushes</span>
+    <div class="top-stats" id="topStats" style="display:none;"></div>
     <span class="badge" id="dpasteNotify" style="display:none; color:var(--accent); border-color:var(--accent);"></span>
   </div>
 
@@ -985,8 +1002,29 @@ function renderWeeklySummary() {
 }
 
 /* ── Render all ────────────────────────────────────────── */
+function topStatHtml(cls, value, label) {
+  return '<div class="top-stat"><span class="num ' + cls + '">' + value + '</span><span class="lbl">' + label + '</span></div>';
+}
+
+function renderTopStats() {
+  var pushes = visiblePushes();
+  var additions = 0, deletions = 0, hasLoc = false;
+  for (var i = 0; i < pushes.length; i++) {
+    if (pushes[i].additions == null) continue;
+    hasLoc = true;
+    additions += pushes[i].additions;
+    deletions += pushes[i].deletions;
+  }
+  var html = topStatHtml('', fmtNum(pushes.length), pushes.length === 1 ? 'push' : 'pushes');
+  if (hasLoc) {
+    html += topStatHtml('loc-add', '+' + fmtNum(additions), 'added')
+      + topStatHtml('loc-del', '−' + fmtNum(deletions), 'removed');
+  }
+  document.getElementById('topStats').innerHTML = html;
+}
+
 function renderAll() {
-  var badge = document.getElementById('countBadge');
+  var topStats = document.getElementById('topStats');
   var exportBtn = document.getElementById('exportBtn');
   var dpBtn = document.getElementById('dpasteExportBtn');
   var bmBtn = document.getElementById('bookmarkBtn');
@@ -994,7 +1032,7 @@ function renderAll() {
   var dpImportBtn = document.getElementById('dpasteImportBtn');
 
   if (allPushes.length === 0) {
-    badge.style.display = 'none';
+    topStats.style.display = 'none';
     exportBtn.style.display = 'none';
     dpBtn.style.display = 'none';
     bmBtn.style.display = 'none';
@@ -1007,14 +1045,12 @@ function renderAll() {
 
   importBtn.style.display = 'none';
   dpImportBtn.style.display = 'none';
-  badge.style.display = '';
+  topStats.style.display = '';
   exportBtn.style.display = '';
   dpBtn.style.display = '';
   bmBtn.style.display = document.getElementById('tokenInput').value.trim() ? '' : 'none';
   assignRepoColors();
-  var shownCount = visiblePushes().length;
-  badge.textContent = shownCount + ' push' + (shownCount !== 1 ? 'es' : '') + (repoFilter ? ' · ' + repoShortName(repoFilter) : '');
-
+  renderTopStats();
   renderWeeklySummary();
   renderPushList();
 }
@@ -1078,6 +1114,7 @@ function renderPushList() {
 }
 
 function fmtNum(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (n >= 10000) return Math.round(n / 1000) + 'k';
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
   return String(n);
